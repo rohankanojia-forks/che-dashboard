@@ -10,7 +10,7 @@
  *   Red Hat, Inc. - initial API and implementation
  */
 
-import { V1alpha2DevWorkspace } from '@devfile/api';
+import { V1alpha2DevWorkspace, V1alpha2DevWorkspaceSpecTemplate } from '@devfile/api';
 import {
   devworkspaceGroup,
   devworkspaceLatestVersion,
@@ -30,15 +30,19 @@ import { prepareCustomObjectWatch } from '@/devworkspaceClient/services/helpers/
 import { IDevWorkspaceApi } from '@/devworkspaceClient/types';
 import { MessageListener } from '@/services/types/Observer';
 import { logger } from '@/utils/logger';
+import { prepareCoreV1API } from '@/devworkspaceClient/services/helpers/prepareCoreV1API';
+import { addSshAgentPostStartEvent } from '@/devworkspaceClient/services/helpers/sshPostStartHelper';
 
 const DEV_WORKSPACE_API_ERROR_LABEL = 'CUSTOM_OBJECTS_API_ERROR';
 
 export class DevWorkspaceApiService implements IDevWorkspaceApi {
+  private readonly coreV1Api: k8s.CoreV1Api;
   private readonly customObjectAPI: CustomObjectAPI;
   private readonly customObjectWatch: k8s.Watch;
   private stopWatch?: () => void;
 
   constructor(kc: k8s.KubeConfig) {
+    this.coreV1Api = prepareCoreV1API(kc);
     this.customObjectAPI = prepareCustomObjectAPI(kc);
     this.customObjectWatch = prepareCustomObjectWatch(kc);
   }
@@ -97,7 +101,21 @@ export class DevWorkspaceApiService implements IDevWorkspaceApi {
           'Either DevWorkspace `metadata.name` or `metadata.generateName` is required.',
         );
       }
+      // 🔍 Check if devworkspace-ssh-askpass ConfigMap exists
+      let configMapExists = false;
+      try {
+        await this.coreV1Api.readNamespacedConfigMap('devworkspace-ssh-askpass', namespace);
+        configMapExists = true;
+      } catch (err: any) {
+        if (err.response?.statusCode !== 404) {
+          throw createError(err, DEV_WORKSPACE_API_ERROR_LABEL, 'Failed to read ConfigMap');
+        }
+      }
 
+      // 🛠️ If it exists, patch the devworkspace to add a postStart event
+      if (configMapExists) {
+        await addSshAgentPostStartEvent(devworkspace.spec?.template);
+      }
       const resp = await this.customObjectAPI.createNamespacedCustomObject(
         devworkspaceGroup,
         devworkspaceLatestVersion,
