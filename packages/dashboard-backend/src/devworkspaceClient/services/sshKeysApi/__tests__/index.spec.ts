@@ -14,7 +14,7 @@
 
 import { api } from '@eclipse-che/common';
 import * as mockClient from '@kubernetes/client-node';
-import { CoreV1Api, V1Secret, V1SecretList } from '@kubernetes/client-node';
+import { CoreV1Api, V1ConfigMap, V1Secret, V1SecretList } from '@kubernetes/client-node';
 import { IncomingMessage } from 'http';
 
 import { SshKeysService } from '..';
@@ -60,6 +60,12 @@ describe('SSH Keys API', () => {
         response: {} as IncomingMessage,
       });
     },
+    createNamespacedConfigMap: () => {
+      return Promise.resolve({
+        body: {} as V1ConfigMap,
+        response: {} as IncomingMessage,
+      });
+    },
     readNamespacedSecret: () => {
       return Promise.resolve({
         body: {} as V1Secret,
@@ -72,12 +78,20 @@ describe('SSH Keys API', () => {
         response: {} as IncomingMessage,
       });
     },
+    deleteNamespacedConfigMap: () => {
+      return Promise.resolve({
+        body: undefined,
+        response: {} as IncomingMessage,
+      });
+    },
   } as unknown as CoreV1Api;
   const spyListNamespacedSecret = jest.spyOn(stubCoreV1Api, 'listNamespacedSecret');
   const spyCreateNamespacedSecret = jest.spyOn(stubCoreV1Api, 'createNamespacedSecret');
+  const spyCreateNamespacedConfigMap = jest.spyOn(stubCoreV1Api, 'createNamespacedConfigMap');
   const spyReadNamespacedSecret = jest.spyOn(stubCoreV1Api, 'readNamespacedSecret');
   // const spyReplaceNamespacedSecret = jest.spyOn(stubCoreV1Api, 'replaceNamespacedSecret');
   const spyDeleteNamespacedSecret = jest.spyOn(stubCoreV1Api, 'deleteNamespacedSecret');
+  const spyDeleteNamespacedConfigMap = jest.spyOn(stubCoreV1Api, 'deleteNamespacedConfigMap');
 
   beforeEach(() => {
     const { KubeConfig } = mockClient;
@@ -139,6 +153,21 @@ describe('SSH Keys API', () => {
       await sshKeysService.add(namespace, sshKey);
 
       expect(spyCreateNamespacedSecret).toHaveBeenCalled();
+      expect(spyCreateNamespacedConfigMap).not.toHaveBeenCalled();
+    });
+
+    it('should create secret and configmap if SSH key that contains passphrase provided', async () => {
+      const sshKey: api.NewSshKey = {
+        name: 'asdf-1234',
+        key: 'ssh-key-data',
+        keyPub: 'ssh-key-pub-data',
+        passphrase: 'ssh-passphrase',
+      };
+
+      await sshKeysService.add(namespace, sshKey);
+
+      expect(spyCreateNamespacedSecret).toHaveBeenCalled();
+      expect(spyCreateNamespacedConfigMap).toHaveBeenCalled();
     });
 
     it('should return error if the SSH key already exists', async () => {
@@ -204,6 +233,7 @@ describe('SSH Keys API', () => {
       await sshKeysService.delete(namespace, name);
 
       expect(spyDeleteNamespacedSecret).toHaveBeenCalledTimes(1);
+      expect(spyDeleteNamespacedConfigMap).toHaveBeenCalled();
     });
 
     it('should return error if unable to delete the secret', async () => {
@@ -221,6 +251,35 @@ describe('SSH Keys API', () => {
       } catch (e) {
         expect((e as unknown as Error).message).toEqual(
           `Unable to delete SSH key "${name}" in the namespace "${namespace}": ${errorMessage}`,
+        );
+      }
+    });
+
+    it('should NOT return error if ConfigMap not found', async () => {
+      spyDeleteNamespacedConfigMap.mockImplementationOnce(() => {
+        const error = new Error('ConfigMap not found') as any;
+        error.response = { statusCode: 404 };
+        throw error;
+      });
+
+      await expect(sshKeysService.delete(namespace, 'asdf-1234')).resolves.not.toThrow();
+    });
+
+    it('should return error if unable to delete the ConfigMap', async () => {
+      const errorMessage = 'Error in deleting ConfigMap';
+      spyDeleteNamespacedConfigMap.mockImplementationOnce(() => {
+        throw new Error(errorMessage);
+      });
+
+      const name = 'asdf-1234';
+
+      expect.assertions(1);
+
+      try {
+        await sshKeysService.delete(namespace, name);
+      } catch (e) {
+        expect((e as unknown as Error).message).toEqual(
+          `Unable to delete SSH key "${name}" in the namespace "${namespace}": unable to delete ConfigMap associated with SSH Key: ${errorMessage}`,
         );
       }
     });

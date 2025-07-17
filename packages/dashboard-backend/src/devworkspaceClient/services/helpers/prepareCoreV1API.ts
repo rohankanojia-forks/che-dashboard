@@ -28,6 +28,7 @@ export type CoreV1API = Pick<
   | 'readNamespacedSecret'
   | 'replaceNamespacedSecret'
   | 'deleteNamespacedSecret'
+  | 'deleteNamespacedConfigMap'
   | 'listNamespacedConfigMap'
 >;
 
@@ -58,6 +59,8 @@ export function prepareCoreV1API(kc: k8s.KubeConfig): CoreV1API {
       retryableExec(() => coreV1API.replaceNamespacedSecret(...args)),
     deleteNamespacedSecret: (...args: Parameters<typeof coreV1API.deleteNamespacedSecret>) =>
       retryableExec(() => coreV1API.deleteNamespacedSecret(...args)),
+    deleteNamespacedConfigMap: (...args: Parameters<typeof coreV1API.deleteNamespacedConfigMap>) =>
+      retryableExec(() => coreV1API.deleteNamespacedConfigMap(...args)),
     listNamespacedConfigMap: (...args: Parameters<typeof coreV1API.listNamespacedConfigMap>) =>
       retryableExec(() => coreV1API.listNamespacedConfigMap(...args)),
   };

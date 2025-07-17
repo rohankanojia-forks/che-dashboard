@@ -63,6 +63,36 @@ export function isSshKeySecret(secret: k8s.V1Secret): secret is SshKeySecret {
   );
 }
 
+export const SSH_ASKPASS_CONFIGMAP_NAME = 'devworkspace-ssh-askpass';
+const SSH_ASKPASS_SCRIPT_FILENAME = 'ssh-askpass.sh';
+
+export function constructSshAskPassCM(namespace: string): k8s.V1ConfigMap {
+  const script = `#!/bin/sh
+PASSPHRASE_FILE_PATH="/etc/ssh/passphrase"
+if [ ! -f $PASSPHRASE_FILE_PATH ]; then
+    echo "Error: passphrase file is missing in the '/etc/ssh/' directory" 1>&2
+    exit 1
+fi
+cat $PASSPHRASE_FILE_PATH`;
+
+  return {
+    apiVersion: 'v1',
+    kind: 'ConfigMap',
+    metadata: {
+      name: SSH_ASKPASS_CONFIGMAP_NAME,
+      namespace,
+      labels: {
+        'app.kubernetes.io/defaultName': 'ssh-askpass-secret',
+        'app.kubernetes.io/part-of': 'devworkspace-operator',
+        'controller.devfile.io/watch-configmap': 'true',
+      },
+    },
+    data: {
+      [SSH_ASKPASS_SCRIPT_FILENAME]: script,
+    },
+  };
+}
+
 export function fromSecret(secret: k8s.V1Secret): api.SshKey {
   if (!isSshKeySecret(secret)) {
     throw new Error('Secret is not an SSH key.');

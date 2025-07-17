@@ -14,7 +14,7 @@ import { api } from '@eclipse-che/common';
 import k8s from '@kubernetes/client-node';
 
 import {
-  buildLabelSelector,
+  buildLabelSelector, constructSshAskPassCM,
   fromSecret,
   isSshKeySecret,
   SSH_CONFIG,
@@ -152,5 +152,36 @@ describe('Helpers for SSH Keys API', () => {
         namespace: 'user-che',
       },
     } as SshKeySecret);
+  });
+
+  describe('constructSshAskPassCM', () => {
+    test('Constructs ConfigMap with SshAskPass script', () => {
+      const namespace = 'user-che';
+
+      const configMap = constructSshAskPassCM(namespace);
+      expect(configMap).toStrictEqual({
+        apiVersion: 'v1',
+        data: {
+          'ssh-askpass.sh':
+            '#!/bin/sh\n' +
+            'PASSPHRASE_FILE_PATH="/etc/ssh/passphrase"\n' +
+            'if [ ! -f $PASSPHRASE_FILE_PATH ]; then\n' +
+            '    echo "Error: passphrase file is missing in the \'/etc/ssh/\' directory" 1>&2\n' +
+            '    exit 1\n' +
+            'fi\n' +
+            'cat $PASSPHRASE_FILE_PATH',
+        },
+        kind: 'ConfigMap',
+        metadata: {
+          labels: {
+            'app.kubernetes.io/defaultName': 'ssh-askpass-secret',
+            'app.kubernetes.io/part-of': 'devworkspace-operator',
+            'controller.devfile.io/watch-configmap': 'true',
+          },
+          name: 'devworkspace-ssh-askpass',
+          namespace: 'user-che',
+        },
+      } as k8s.V1ConfigMap);
+    });
   });
 });

@@ -19,9 +19,9 @@ import {
   prepareCoreV1API,
 } from '@/devworkspaceClient/services/helpers/prepareCoreV1API';
 import {
-  buildLabelSelector,
+  buildLabelSelector, constructSshAskPassCM,
   fromSecret,
-  isSshKeySecret,
+  isSshKeySecret, SSH_ASKPASS_CONFIGMAP_NAME,
   toSecret,
 } from '@/devworkspaceClient/services/sshKeysApi/helpers';
 import { IShhKeysApi } from '@/devworkspaceClient/types';
@@ -85,6 +85,10 @@ export class SshKeysService implements IShhKeysApi {
     try {
       const secret = toSecret(namespace, sshKey);
       const { body } = await this.coreV1API.createNamespacedSecret(namespace, secret);
+      if (sshKey.passphrase) {
+        const configMap = constructSshAskPassCM(namespace);
+        await this.coreV1API.createNamespacedConfigMap(namespace, configMap);
+      }
       return fromSecret(body);
     } catch (error) {
       const additionalMessage = `Unable to add SSH key "${sshKey.name}"`;
@@ -95,6 +99,19 @@ export class SshKeysService implements IShhKeysApi {
   async delete(namespace: string, name: string): Promise<void> {
     try {
       await this.coreV1API.deleteNamespacedSecret(name, namespace);
+
+      try {
+        await this.coreV1API.deleteNamespacedConfigMap(SSH_ASKPASS_CONFIGMAP_NAME, namespace);
+      } catch (err: any) {
+        if (err.response?.statusCode !== 404) {
+          // Re-throw if error is not 'Not Found'
+          throw createError(
+            err,
+            API_ERROR_LABEL,
+            'unable to delete ConfigMap associated with SSH Key',
+          );
+        }
+      }
     } catch (error) {
       const additionalMessage = `Unable to delete SSH key "${name}" in the namespace "${namespace}"`;
       throw createError(error, API_ERROR_LABEL, additionalMessage);
