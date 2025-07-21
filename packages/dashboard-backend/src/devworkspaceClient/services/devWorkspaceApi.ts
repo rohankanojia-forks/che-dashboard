@@ -10,7 +10,7 @@
  *   Red Hat, Inc. - initial API and implementation
  */
 
-import { V1alpha2DevWorkspace, V1alpha2DevWorkspaceSpecTemplate } from '@devfile/api';
+import { V1alpha2DevWorkspace } from '@devfile/api';
 import {
   devworkspaceGroup,
   devworkspaceLatestVersion,
@@ -23,6 +23,10 @@ import http, { IncomingHttpHeaders } from 'http';
 
 import { createError } from '@/devworkspaceClient/services/helpers/createError';
 import {
+  CoreV1API,
+  prepareCoreV1API,
+} from '@/devworkspaceClient/services/helpers/prepareCoreV1API';
+import {
   CustomObjectAPI,
   prepareCustomObjectAPI,
 } from '@/devworkspaceClient/services/helpers/prepareCustomObjectAPI';
@@ -30,13 +34,11 @@ import { prepareCustomObjectWatch } from '@/devworkspaceClient/services/helpers/
 import { IDevWorkspaceApi } from '@/devworkspaceClient/types';
 import { MessageListener } from '@/services/types/Observer';
 import { logger } from '@/utils/logger';
-import { prepareCoreV1API } from '@/devworkspaceClient/services/helpers/prepareCoreV1API';
-import { addSshAgentPostStartEvent } from '@/devworkspaceClient/services/helpers/sshPostStartHelper';
 
 const DEV_WORKSPACE_API_ERROR_LABEL = 'CUSTOM_OBJECTS_API_ERROR';
 
 export class DevWorkspaceApiService implements IDevWorkspaceApi {
-  private readonly coreV1Api: k8s.CoreV1Api;
+  private readonly coreV1Api: CoreV1API;
   private readonly customObjectAPI: CustomObjectAPI;
   private readonly customObjectWatch: k8s.Watch;
   private stopWatch?: () => void;
@@ -112,9 +114,11 @@ export class DevWorkspaceApiService implements IDevWorkspaceApi {
         }
       }
 
-      // 🛠️ If it exists, patch the devworkspace to add a postStart event
-      if (configMapExists) {
-        await addSshAgentPostStartEvent(devworkspace.spec?.template);
+      // 🛠️ If it exists, patch the devworkspace to add a initialize ssh agent attribute
+      if (configMapExists && devworkspace.spec?.template) {
+        const template = devworkspace.spec?.template;
+        template.attributes = template.attributes ?? {};
+        template.attributes['controller.devfile.io/initialize-ssh-agent'] = true;
       }
       const resp = await this.customObjectAPI.createNamespacedCustomObject(
         devworkspaceGroup,

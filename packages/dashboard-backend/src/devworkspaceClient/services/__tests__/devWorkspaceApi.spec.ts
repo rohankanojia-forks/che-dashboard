@@ -20,7 +20,7 @@ import {
 } from '@devfile/api/constants/constants';
 import { api } from '@eclipse-che/common';
 import * as mockClient from '@kubernetes/client-node';
-import { CustomObjectsApi } from '@kubernetes/client-node';
+import { CoreV1Api, CustomObjectsApi, V1ConfigMap } from '@kubernetes/client-node';
 import { IncomingMessage } from 'http';
 
 import { DevWorkspaceApiService } from '@/devworkspaceClient/services/devWorkspaceApi';
@@ -31,6 +31,14 @@ const name = 'wksp-name';
 describe('DevWorkspace API Service', () => {
   let devWorkspaceService: DevWorkspaceApiService;
 
+  const stubCoreV1Api = {
+    readNamespacedConfigMap: () => {
+      return Promise.resolve({
+        body: {} as V1ConfigMap,
+        response: { headers: {} } as IncomingMessage,
+      });
+    },
+  } as unknown as CoreV1Api;
   const stubCustomObjectsApi = {
     createNamespacedCustomObject: () => {
       return Promise.resolve({
@@ -78,12 +86,20 @@ describe('DevWorkspace API Service', () => {
     stubCustomObjectsApi,
     'patchNamespacedCustomObject',
   );
+  const spyReadNamespacedConfigMap = jest.spyOn(stubCoreV1Api, 'readNamespacedConfigMap');
 
   beforeEach(() => {
     const { KubeConfig } = mockClient;
     const kubeConfig = new KubeConfig();
 
-    kubeConfig.makeApiClient = jest.fn().mockImplementation(_api => stubCustomObjectsApi);
+    kubeConfig.makeApiClient = jest.fn().mockImplementation(_api => {
+      if (_api.name === 'CustomObjectsApi') {
+        return stubCustomObjectsApi;
+      }
+      if (_api.name === 'CoreV1Api') {
+        return stubCoreV1Api;
+      }
+    });
 
     devWorkspaceService = new DevWorkspaceApiService(kubeConfig);
   });
@@ -124,10 +140,16 @@ describe('DevWorkspace API Service', () => {
         namespace,
       },
     } as V1alpha2DevWorkspace;
+    spyReadNamespacedConfigMap.mockImplementationOnce(() => {
+      const error = new Error('ConfigMap not found') as any;
+      error.response = { statusCode: 404 };
+      throw error;
+    });
 
     const res = await devWorkspaceService.create(devWorkspace, namespace);
     expect(res.devWorkspace).toStrictEqual(getDevWorkspace());
     expect(res.headers).toStrictEqual({});
+    expect(spyReadNamespacedConfigMap).toHaveBeenCalled();
     expect(spyCreateNamespacedCustomObject).toHaveBeenCalledWith(
       devworkspaceGroup,
       devworkspaceLatestVersion,
